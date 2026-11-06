@@ -335,8 +335,16 @@ def streaming_chatbot() -> None:
                 model=GEMINI_MODEL,
                 contents=contents,
             )
-            for chunk in response_stream:
-                chunk_text = getattr(chunk, "text", "") or ""
+            if hasattr(response_stream, "__iter__") and not isinstance(response_stream, (str, bytes)):
+                for chunk in response_stream:
+                    if isinstance(chunk, str):
+                        chunk_text = chunk
+                    else:
+                        chunk_text = getattr(chunk, "text", "") or ""
+                    print(chunk_text, end="", flush=True)
+                    full_response += chunk_text
+            else:
+                chunk_text = getattr(response_stream, "text", "") or str(response_stream or "")
                 print(chunk_text, end="", flush=True)
                 full_response += chunk_text
             print("\n")
@@ -350,6 +358,9 @@ def streaming_chatbot() -> None:
         )
         history.append(user_message)
         history.append(model_message)
+        history = history[-6:]
+
+    return history
 
 
 # ---------------------------------------------------------------------------

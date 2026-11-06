@@ -19,6 +19,7 @@ from solution import (
     call_gemini,
     call_anthropic,
     compare_models,
+    streaming_chatbot,
     retry_with_backoff,
     batch_compare,
     format_comparison_table,
@@ -169,6 +170,49 @@ def main():
 
         print("\nBảng Markdown so sánh kết quả tự động:")
         print(table_output)
+
+    # ---------------------------------------------------------
+    # BƯỚC 7: Task 5 - streaming_chatbot (Conversation Log & History Retention)
+    # ---------------------------------------------------------
+    press_to_continue("Task 5: streaming_chatbot & Conversation Log (Kiểm tra lịch sử 3 lượt hội thoại)")
+    print("Mô phỏng hội thoại 4 lượt chat liên tiếp, sau đó 'quit' để kiểm tra Conversation Log:")
+
+    user_turns = [
+        "Xin chào",
+        "Tôi là sinh viên ngành AI.",
+        "Tôi vừa giới thiệu mình học ngành gì?",
+        "Tóm tắt lại cuộc hội thoại ngắn gọn.",
+        "quit"
+    ]
+
+    with patch("google.genai.Client") as MockGenAI:
+        mock_client = MagicMock()
+        MockGenAI.return_value = mock_client
+
+        mock_client.models.generate_content_stream.side_effect = [
+            [MagicMock(text="Chào bạn! Tôi là trợ lý AI.")],
+            [MagicMock(text="Rất vui được gặp bạn, ngành AI rất tiềm năng!")],
+            [MagicMock(text="Bạn vừa giới thiệu mình là sinh viên ngành AI.")],
+            [MagicMock(text="Bạn đã chào và giới thiệu về ngành AI của bạn.")],
+        ]
+
+        with patch("builtins.input", side_effect=user_turns):
+            conv_log = streaming_chatbot()
+
+        print("\n" + "-" * 50)
+        print("📊 KIỂM TRA CONVERSATION LOG:")
+        print(f"Tổng số lượt gọi API: {mock_client.models.generate_content_stream.call_count}")
+        calls = mock_client.models.generate_content_stream.call_args_list
+        for i, call in enumerate(calls, 1):
+            contents = call.kwargs.get("contents", [])
+            print(f"  * Lượt {i}: Gửi kèm context gồm {len(contents)} message(s) trong history.")
+
+        if conv_log:
+            print(f"\nSố lượng tin nhắn lưu trong Conversation Log cuối phiên: {len(conv_log)} tin nhắn (tối đa 3 lượt = 6 tin nhắn).")
+            for idx, msg in enumerate(conv_log, 1):
+                role = getattr(msg, "role", "unknown")
+                txt = msg.parts[0].text if hasattr(msg, "parts") and msg.parts else ""
+                print(f"    [{idx}] {role.upper()}: {txt}")
 
     print("\n" + "=" * 60)
     print("🎉 ĐÃ HOÀN THÀNH TẤT CẢ CÁC BƯỚC THỬ NGHIỆM THÀNH CÔNG!")

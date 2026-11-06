@@ -238,6 +238,68 @@ class TestStreamingChatbot(unittest.TestCase):
         except SystemExit:
             pass
 
+    @patch("google.genai.Client")
+    def test_conversation_log(self, MockClient):
+        """Test that streaming_chatbot records and maintains a 3-turn conversation log."""
+        mock_client = MagicMock()
+        MockClient.return_value = mock_client
+
+        # Mock responses for 4 turns
+        mock_client.models.generate_content_stream.side_effect = [
+            [MagicMock(text="Chào bạn! Tôi có thể giúp gì cho bạn?")],
+            [MagicMock(text="Machine learning là một nhánh của AI.")],
+            [MagicMock(text="Deep learning là tập con của machine learning.")],
+            [MagicMock(text="Gemini 2.5 Flash rất nhanh và thông minh.")],
+        ]
+
+        user_inputs = [
+            "Xin chào",
+            "Machine learning là gì?",
+            "Thế còn Deep learning?",
+            "Mô hình nào đang chạy?",
+            "quit",
+        ]
+
+        with patch("builtins.input", side_effect=user_inputs):
+            conv_log = streaming_chatbot()
+
+        # 1. generate_content_stream must have been invoked for each user message before quit
+        self.assertEqual(mock_client.models.generate_content_stream.call_count, 4)
+
+        calls = mock_client.models.generate_content_stream.call_args_list
+
+        # Turn 1: No previous history, contents contains only the 1st user query
+        turn1_contents = calls[0].kwargs.get("contents")
+        self.assertEqual(len(turn1_contents), 1)
+        self.assertEqual(turn1_contents[0].role, "user")
+        self.assertEqual(turn1_contents[0].parts[0].text, "Xin chào")
+
+        # Turn 2: Contents includes Turn 1 user + Turn 1 model + Turn 2 user (3 messages)
+        turn2_contents = calls[1].kwargs.get("contents")
+        self.assertEqual(len(turn2_contents), 3)
+        self.assertEqual(turn2_contents[0].parts[0].text, "Xin chào")
+        self.assertEqual(turn2_contents[1].parts[0].text, "Chào bạn! Tôi có thể giúp gì cho bạn?")
+        self.assertEqual(turn2_contents[2].parts[0].text, "Machine learning là gì?")
+
+        # Turn 3: Contents includes Turns 1 & 2 + Turn 3 user (5 messages)
+        turn3_contents = calls[2].kwargs.get("contents")
+        self.assertEqual(len(turn3_contents), 5)
+
+        # Turn 4: Context maintains last 3 turns of history (6 messages) + Turn 4 user (7 messages total)
+        turn4_contents = calls[3].kwargs.get("contents")
+        self.assertEqual(len(turn4_contents), 7)
+        self.assertEqual(turn4_contents[0].parts[0].text, "Xin chào")
+        self.assertEqual(turn4_contents[-1].parts[0].text, "Mô hình nào đang chạy?")
+
+        # 2. Check conversation log retention at session end (max 3 turns = 6 messages)
+        if conv_log is not None:
+            self.assertEqual(len(conv_log), 6)
+            log_texts = [msg.parts[0].text for msg in conv_log]
+            # Oldest turn ("Xin chào") must have been pruned from the sliding window
+            self.assertNotIn("Xin chào", log_texts)
+            self.assertIn("Machine learning là gì?", log_texts)
+            self.assertIn("Gemini 2.5 Flash rất nhanh và thông minh.", log_texts)
+
 
 if __name__ == "__main__":
     unittest.main()
